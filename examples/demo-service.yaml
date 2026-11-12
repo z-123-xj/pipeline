@@ -1,0 +1,41 @@
+# =============================================================================
+# 最小服务级配置示例
+#
+# 放置路径：resources/<env>/<project>/<service>/<job>.yaml
+# 例如本文件对应 Job 名：demo_api_go_docker_prod
+#   resources/prod/demo/api/demo_api_go_docker_prod.yaml
+#
+# 加载规则：先读 resources/config/config.yaml（全局默认），
+#          再用本文件同名 key 覆盖，未写的字段沿用全局值。
+# =============================================================================
+
+# 源码仓地址：http(s):// 走 http_credentials_id，git@ 走 ssh_credentials_id
+gitlab_url: https://github.com/example/demo-api.git
+default_branch: main
+
+# 编译产物名（Go 二进制 / Node 打包名）
+server_name: demo-api
+
+# ---- docker 部署相关（host / k8s 类 job 可省略）----
+# 目标主机列表 ip:port；MODE=Grayscale 时取 gray_hosts
+servicesIP: 10.0.1.10:22,10.0.1.11:22
+gray_hosts: 10.0.1.10:22
+
+# 目标机工作目录（不配则由 Job 名推导 /<project>/<env>/<service>）
+service_dir: /data/demo/prod/demo-api
+
+# true = 构建后推镜像仓库，目标机 pull；false = docker save/load 分发
+docker_push: false
+images_clean: true
+images_clean_keep: 3
+container_name: demo-api
+
+# ---- 可选：覆盖默认编译命令 ----
+# build: |
+#   set -eu
+#   go test ./...
+#   go vet ./...
+#   go build -trimpath -o ${GO_OUT_DIR}/${SERVER_NAME} .
+
+# ---- 可选：构建期环境变量 ----
+# build_env: {CGO_ENABLED: "0"}

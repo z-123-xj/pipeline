@@ -1,0 +1,2 @@
+# 统一使用 LF 行尾，避免 Windows 端 core.autocrlf 归一化时误删文件内容
+* text=auto eol=lf

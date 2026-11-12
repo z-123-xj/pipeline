@@ -1,0 +1,25 @@
+# 各环境的私有部署配置（含目标机、业务参数）不入库
+resources/prod/
+resources/test/
+
+# 本地同步脚本含源仓库脱敏规则，不入库
+sync.ps1
+
+# 本地配置与凭据
+*.key
+*.pem
+.env
+.env.*
+secrets/
+config.local.yaml
+
+# 编辑器 / 系统
+.idea/
+.vscode/
+.codebuddy/
+.DS_Store
+Thumbs.db
+*.swp
+
+# 同步脚本产生的临时文件
+.sync-staging/

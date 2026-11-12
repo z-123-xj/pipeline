@@ -1,0 +1,172 @@
+# =============================================================================
+# 全局默认配置 —— 所有环境、所有 job 共用
+#
+# 优先级：本文件 < resources/<env>/<project>/<job>.yaml（项目 yaml 同名 key 覆盖这里）
+#
+# 本文件同时充当「配置字段字典」：
+#   未注释的 key  = 全局默认值，改它对所有 job 生效
+#   注释掉的 key  = 项目级字段（写进各 job yaml），这里只做速查示例
+#   改了本文件    = 跑一次 pwsh tools/gen-docs.ps1 同步 README
+# =============================================================================
+
+
+# -----------------------------------------------------------------------------
+# 1. 分发到云（rsyncArtifacts / remoteSh / 所有远端步骤共用）
+# -----------------------------------------------------------------------------
+# 产物和部署配置 rsync 到这台机器；后续步骤也是 ssh 到它执行命令
+remote_host: 10.0.0.10
+remote_user: root          # 目标机 / 跳板机登录用户（直连 servicesIP、跳板机都用它）
+ssh_cred: jenkins-ssh-key     # SSH 私钥凭据：连跳板机、以及直连模式连 servicesIP 目标机（写 service_dir）都用它
+# 换机器：在项目 yaml 里写 remote_host: <ip> 覆盖即可
+# host / docker 必须配跳板机（paramBuild 强制校验）；k8s 不需要（直连 ECR + kubectl）
+# 跳板机上的产物暂存/构建目录默认 = 目标机 service_dir（同路径布局），常规无需改
+
+
+# -----------------------------------------------------------------------------
+# 2. Git 检出凭据（pipeline 按仓库地址前缀自动选用，不用在 job 里指定）
+# -----------------------------------------------------------------------------
+# Jenkins 里的凭据 ID，两选一由地址形态决定：
+#   http(s)://xxx.git      → http_credentials_id（username/password 或 token 类型）
+#   git@xxx.git / ssh://   → ssh_credentials_id（SSH Username with Private Key 类型）
+http_credentials_id: git-http-token
+ssh_credentials_id: git-ssh-key
+
+
+# -----------------------------------------------------------------------------
+# 3. 部署清单 & 敏感配置
+# -----------------------------------------------------------------------------
+# 3a. 部署清单 + 敏感配置统一来源 = deploy-configs 仓（本 pipeline 只持有流水线代码，不持有任何部署配置）
+#     检出目录 = deploy_secrets_dir，各消费方（rsync/dockerDeploy/k8sDeploy）拼 <env>/<project>/<service> 取用
+#     目录结构：<env>/<project>/<service>/{docker/,host/,k8s/}
+deploy_config_dir: /var/lib/jenkins/deploy-configs
+
+# 3b. 敏感配置仓（k8s Secret 明文，运维专属，开发不可见；泄露需轮换全部 secret）
+#     k8s Secret 明文与部署清单同仓同目录（<svc>/k8s/secrets/），部署时随清单一起 apply
+deploy_secrets_url: https://git.example.com/ops/deploy-configs.git
+deploy_secrets_dir: /var/lib/jenkins/deploy-configs
+
+
+# -----------------------------------------------------------------------------
+# 4. 容器镜像（k8s 类 job）
+# -----------------------------------------------------------------------------
+# 镜像地址 = image_registry/<项目>/<环境>/<服务名>:<时间戳 tag>
+image_registry: 123456789012.dkr.ecr.ap-northeast-1.amazonaws.com
+# ECR 区域（服务器上手动 docker login 时用同一个）
+aws_region: ap-northeast-1
+
+
+# -----------------------------------------------------------------------------
+# 5. 前端构建（nodejs 类 job：node_type 缺省=静态站 / node_type: runtime=常驻；编译统一走 buildStage）
+# -----------------------------------------------------------------------------
+# 国内直连 registry.npmjs.org 易超时；也用于 corepack 下载 pnpm
+npm_registry: https://registry.npmmirror.com
+# node 构建堆上限(MB)，注入 NODE_OPTIONS=--max-old-space-size；大 SPA / Next.js build 防 OOM
+# 需 ≤ 所有构建 agent 可用内存-512MB；小内存 agent 上的 job 可用 node_memory 覆盖调小
+node_memory: 4096
+
+
+# -----------------------------------------------------------------------------
+# 6. Go 私有依赖
+# -----------------------------------------------------------------------------
+# GOPRIVATE：这些路径绕开 proxy 直连源站；
+# 同时 pipeline 由它自动推导 https→git@ 重写规则，用 ssh_credentials_id 拉取：
+#   github.com/foo/*  ⇒  https://github.com/foo/  重写为  git@github.com:foo/
+# 多个用逗号分隔；没有私有依赖的项目把它置空
+go_private: github.com/example-org/*
+
+
+# =============================================================================
+# 以下为【项目级字段】：写在 resources/<env>/<project>/<job>.yaml 里，
+# 不要在本文件放（这里是速查 + 用法示例，保持注释状态）
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# A. 通用（所有类型可用）
+# -----------------------------------------------------------------------------
+# gitlab_url: git@git.example.com:example-repos/repo.git   # 源码仓地址，http 或 git@ 都支持（自动选凭据）
+# default_branch: main                      # 源码默认分支；BRANCH 参数远端检索失败 / 首次发布时回退到此，未配才用流水线内置 main
+# server_name: demo-api               # 编译产物名，默认 main
+# remote_host: <ip>                         # 跳板机（中转机）；留空 = 直连部署（direct-deploy），不经跳板机
+# direct_deploy: true                       # 强制直连（即便配了 remote_host 也直连）；留空则看 remote_host 是否配置
+# servicesIP: 10.0.1.10:22,10.0.1.11:22     # 目标主机列表 ip:port（host / docker 用；port 可省，默认 22）
+# gray_hosts: 10.0.1.10:22                  # 灰度机列表（MODE=Grayscale 用；不配取 servicesIP 第一台）
+# service_dir: /data/<项目>/test/api         # 目标机工作目录（host 二进制 / docker 容器数据）
+#                                            # 全局默认 /data/<项目>/<环境>/<服务>；demo 是项目名不是固定值
+#                                            # 跳板机暂存/构建目录默认与之同路径，常规无需单独配置
+#
+# 直连模式（remote_host 留空 或 direct_deploy: true）：
+#   - 跳过「分发到云」整段（不往跳板机暂存），产物由部署步骤直传目标机
+#   - host / docker 直连 servicesIP 部署（Jenkins → 目标机，需 ssh_cred 能连目标机）
+#   - docker 构建在 Jenkins agent 本地完成（agent 需装 docker）；目标机再 pull 或 load
+
+# -----------------------------------------------------------------------------
+# B. Go 类 job
+# -----------------------------------------------------------------------------
+# build: |                                  # 【推荐】编译命令（整体覆盖 go 语言默认）；不配则走默认：test→vet→build -trimpath
+#   set -eu
+#   go test ./...
+#   go vet ./...
+#   go build -trimpath -tags netgo,osusergo -o ${GO_OUT_DIR}/${SERVER_NAME} .
+# go_build: |                               # 【已废弃，仅兼容】同 build，优先级低于 build
+#   set -eu
+#   go test ./...
+#   go vet ./...
+#   cd cmd/api
+#   go build -trimpath -o ${GO_OUT_DIR}/${SERVER_NAME} .
+# go_private: github.com/org/*              # 覆盖全局私有依赖路径
+# git_url_rewrite:                          # 仅在 ssh 形态特殊时用（非标准端口/布局）
+#   https://gitlab.internal.com/team/: ssh://git@gitlab.internal.com:2222/team/
+# build_env: {CGO_ENABLED: "0"}             # 构建期环境变量（go 也可用，注入编译环境）
+
+# -----------------------------------------------------------------------------
+# C. Node / Web 类 job
+# -----------------------------------------------------------------------------
+# node_version: 20.18.0                     # 指定 node 版本（须是服务器已装的版本）
+# node_type: runtime                        # node 项目类型：static(默认)=静态站(nginx)；runtime=node 常驻(如 Next.js standalone)
+# node_static_dir: dist                     # 静态站产物目录（默认探测 dist>build>out）
+# node_memory: 8192                         # 覆盖第 5 节全局堆上限（个别大构建调大；默认已全局 4096）
+# build: |                                  # 【推荐】编译命令（整体覆盖 node 语言默认）；不配则走默认：pnpm install --frozen-lockfile && pnpm build
+#   pnpm install --frozen-lockfile
+#   pnpm build
+# node_build: |                             # 【已废弃，仅兼容】同 build，优先级低于 build
+#   pnpm install --frozen-lockfile
+#   pnpm build
+# build_env: {VITE_APP_ENV: prod}       # 构建期环境变量(vite/next 烤进 bundle，或传给 go)；覆盖仓库 .env.*（如 prod 的 Privy App ID 与 test 不同）
+# npm_registry: https://registry.npmmirror.com  # 换源（默认取上面的全局值）
+
+# -----------------------------------------------------------------------------
+# D. k8s 类 job
+# -----------------------------------------------------------------------------
+# namespace: demo                     # 命名空间，默认 <项目>-<环境>
+# image: 123456789012.dkr.ecr.../x/y        # 覆盖自动拼接的镜像地址
+
+# -----------------------------------------------------------------------------
+# E. host 类 job（二进制 / node 部署到指定主机，systemd 托管）
+# -----------------------------------------------------------------------------
+# service_name: demo-admin            # systemd unit 名；不配 = 静态站点（nginx 托管）
+# service_unit: |                           # unit 完整内容，原样写到 /etc/systemd/system/<service_name>.service
+#   [Unit]
+#   Description=...
+#   [Service]
+#   ExecStart=...
+#   [Install]
+#   WantedBy=multi-user.target
+
+# -----------------------------------------------------------------------------
+# F. docker 类 job（跳板机构建镜像 → 推 ECR/save-load → 目标机 → 容器托管）
+#    服务目录需有 Dockerfile（build 模式）或 compose.yml（compose 模式）；两者都有则走 compose
+#    镜像地址与 k8s 完全一致（统一 ECR 地址）；只有部署阶段不同（k8s apply / docker pull 或 save-load）
+#    docker 与 k8s 一致：永远在流水线编译 + 构建镜像
+#    形态自动分流：服务目录含 compose.yml → compose 模式（下发 up）；否则 → run 模式（docker run）
+# -----------------------------------------------------------------------------
+# container_name: demo-xxx            # 容器名，默认 = 服务名
+# docker_run_args: -p 8080:8080 -e ENV=prod --memory 512m   # docker run 额外参数，原样透传（仅 run 模式）
+# docker_push: true                         # true（默认）= build 后推 ECR，目标机直接 docker pull（与 k8s 一致）
+#                                            # false        = 不推仓库，docker save/load 直接分发（目标机无法 pull 仓库时用）
+# images_clean: true                        # true = 部署结束后清理历史镜像（默认 false）
+#                                            #   构建机(agent/跳板机)：docker image prune -a -f 全清
+#                                            #   目标机：仅清理当前服务仓库旧 tag，保留最近 images_clean_keep 个
+# images_clean_keep: 3                      # 目标机保留最近几个镜像 tag（默认 3，含当前 tag；按 tag 时间戳排序）
+# compose_remove_orphans: true              # compose up 是否加 --remove-orphans（删本项目里当前 compose 未定义的容器）；默认 true
+#                                            # 多服务共享同一 compose 项目、只接管单服务时设 false，避免删掉同项目其它服务
+# compose 里写 <image> 占位（部署时替换成统一 ECR 地址 IMAGE_FULL）；不要再写死 ghcr tag

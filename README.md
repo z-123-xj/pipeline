@@ -131,7 +131,7 @@ Job 名遵循五段式，例如 `demo_api_go_docker_prod`：
 
 ---
 
-## 工程细节 / 面试看点
+## 工程细节
 
 - **配置即代码**：`readYaml(libraryResource(...))` + `putAll` 两级合并，Job 名解析出全部上下文，新增服务零流水线代码。
 - **凭据零落盘**：远端脚本统一走 `withCredentials([sshUserPrivateKey(...)])`，配置里只保存 Jenkins 凭据 ID；ECR 登录用 `get-login-password | docker login --password-stdin`。
